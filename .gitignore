@@ -36,6 +36,19 @@ android/app/src/main/assets/capacitor.config.json
 android/app/src/main/assets/capacitor.plugins.json
 android/app/src/main/res/xml/config.xml
 
+# iOS / Xcode generated files
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+*.moved-aside
+*.ipa
+*.dSYM
+ios/App/App/public/
+ios/App/App/capacitor.config.json
+ios/App/App/config.xml
+
 # External plugin worktrees
 capacitor-plugin-geofence/
 cordova-plugin-geofence/
