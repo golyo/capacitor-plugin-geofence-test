@@ -1,0 +1,27 @@
+App/build/
+App/Pods/
+App/output/
+App/App/public/
+DerivedData/
+xcuserdata/
+
+# Xcode user-specific / generated
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+*.moved-aside
+*.ipa
+*.dSYM
+
+# If present (CocoaPods / workspace)
+App/App.xcworkspace/
+
+# Cordova plugins for Capacitor
+capacitor-cordova-ios-plugins
+
+# Generated Config files
+App/App/capacitor.config.json
+App/App/config.xml
+
+# Xcode generates this automatically when opening the .xcodeproj
+App/*.xcodeproj/project.xcworkspace/

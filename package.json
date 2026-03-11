@@ -12,11 +12,16 @@
     "android:sync": "npx cap sync android",
     "android:open": "npx cap open android",
     "android:prepare": "npm run build && npm run android:sync",
-    "android:prepare:plugin": "npm run plugin:build && npm install && npm run android:prepare"
+    "android:prepare:plugin": "npm run plugin:build && npm install && npm run android:prepare",
+    "ios:sync": "npx cap sync ios",
+    "ios:open": "npx cap open ios",
+    "ios:prepare": "npm run build && npm run ios:sync",
+    "ios:prepare:plugin": "npm run plugin:build && npm install && npm run ios:prepare"
   },
   "dependencies": {
     "@capacitor/core": "^8.2.0",
-    "capacitor-plugin-geofence": "^0.0.1",
+    "@capacitor/ios": "^8.2.0",
+    "capacitor-plugin-geofence": "github:golyo/capacitor-plugin-geofence#feature/ios-killed-notifications",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
