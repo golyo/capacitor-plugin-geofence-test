@@ -17,6 +17,7 @@
   "dependencies": {
     "@capacitor/android": "^8.4.1",
     "@capacitor/core": "^8.2.0",
+    "@capacitor/geolocation": "^8.2.0",
     "capacitor-plugin-geofence": "^0.0.3",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"

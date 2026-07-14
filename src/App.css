@@ -24,17 +24,25 @@
 
 .buttonGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.6rem;
+  align-items: stretch;
 }
 
 .buttonGrid button {
-  min-height: 40px;
+  min-height: 44px;
+  width: 100%;
   border-radius: 8px;
   border: 1px solid #6e6e6e;
   background: #f4f4f4;
   color: #1a1a1a;
   font-weight: 600;
+  white-space: normal;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+  padding: 0.55rem 0.65rem;
+  text-align: center;
 }
 
 .buttonGrid button:hover {
@@ -45,6 +53,7 @@
 .permissionStatus {
   margin-top: 0.75rem;
   color: #f0f3ff;
+  overflow-wrap: anywhere;
 }
 
 .logs {
@@ -74,4 +83,18 @@
 
 .logItem.error {
   color: #ffd0d0;
+}
+
+@media (max-width: 720px) {
+  #root {
+    padding: 0.75rem;
+  }
+
+  .panel {
+    padding: 0.8rem;
+  }
+
+  .buttonGrid {
+    grid-template-columns: 1fr;
+  }
 }

@@ -1,59 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Capacitor } from '@capacitor/core'
-import { Geofence, TransitionType } from 'capacitor-plugin-geofence'
 import './App.css'
-
-type AppGeofence = {
-  id: string
-  latitude: number
-  longitude: number
-  radius: number
-  transitionType: number
-  loiteringDelay?: number
-  startTime?: string
-  endTime?: string
-  notification?: {
-    id?: number
-    title?: string
-    text?: string
-    openAppOnClick?: boolean
-    frequency?: number
-    vibrate?: number[]
-    data?: unknown
-  }
-}
-
-const TEST_GEOFENCE_ID = 'bp-parlament-geofence'
-const TEST_NOTIFICATION_ID = 9001
-
-const TEST_COORDINATES = {
-  latitude: 47.50786,
-  longitude: 19.04593,
-  radius: 500,
-}
-
-const buildSingleTestGeofence = (): AppGeofence => ({
-  id: TEST_GEOFENCE_ID,
-  latitude: TEST_COORDINATES.latitude,
-  longitude: TEST_COORDINATES.longitude,
-  radius: TEST_COORDINATES.radius,
-  transitionType: TransitionType.BOTH,
-  loiteringDelay: 60000,
-  startTime: '2026-01-01T00:00:00.000Z',
-  endTime: '2030-01-01T00:00:00.000Z',
-  notification: {
-    id: TEST_NOTIFICATION_ID,
-    title: 'Geofence $transition',
-    text: 'Test geofence transition happened.',
-    openAppOnClick: true,
-    frequency: 0,
-    vibrate: [200, 200, 200],
-    data: {
-      source: 'geofence-test-app',
-      geofenceId: TEST_GEOFENCE_ID,
-    },
-  },
-})
 
 type LogLevel = 'info' | 'success' | 'error'
 
@@ -63,15 +10,94 @@ type LogItem = {
   message: string
 }
 
-type PermissionStatusMap = Record<string, string>
+type CheckinPermission =
+  | 'CHECK_IN_ALLOWED'
+  | 'CHECK_IN_PENDING'
+  | 'CHECK_IN_NOT_ALLOWED'
+
+type CheckinInfo = {
+  logicalId: string
+  name?: string
+  latitude: number
+  longitude: number
+  radius: number
+  airport: string
+  checkInPermission?: CheckinPermission
+}
+
+type GeofenceStatus = 'NONE' | 'OK' | 'PERMISSION_DENIED' | 'ERROR'
+
+type GeofenceService = {
+  initialize: (options?: {
+    pathPrefix?: string
+    onEnterCheckinZone?: (checkin: CheckinInfo) => void
+    onStatusChange?: (next: GeofenceStatus, prev: GeofenceStatus, error?: unknown) => void
+    logger?: {
+      debug: (...args: unknown[]) => void
+      info: (...args: unknown[]) => void
+      warn: (...args: unknown[]) => void
+      error: (...args: unknown[]) => void
+    }
+  }) => Promise<void>
+  reconfigure: (options?: {
+    pathPrefix?: string
+    notificationConfig?: {
+      title?: string
+      text?: string
+      vibration?: number[]
+      icons?: Record<string, string>
+    }
+  }) => void
+  checkLocation: (checkin: CheckinInfo) => Promise<boolean>
+  getDebugInfos: () => Promise<unknown>
+  geofenceArrivedToApp: (logicalId: string) => void
+  getStatus: () => GeofenceStatus
+  hasGeofencedCheckin: () => boolean
+  isPlatformAndroid: () => boolean
+  CheckInPermission?: {
+    CHECK_IN_ALLOWED: CheckinPermission
+    CHECK_IN_PENDING: CheckinPermission
+    CHECK_IN_NOT_ALLOWED: CheckinPermission
+  }
+}
+
+const TEST_CHECKIN_A: CheckinInfo = {
+  logicalId: 'bp-airport-a',
+  name: 'Budapest Airport A',
+  latitude: 47.4399,
+  longitude: 19.2611,
+  radius: 450,
+  airport: 'A',
+  checkInPermission: 'CHECK_IN_ALLOWED',
+}
+
+const TEST_CHECKIN_B: CheckinInfo = {
+  logicalId: 'bp-airport-a',
+  name: 'Budapest Airport B',
+  latitude: 47.444,
+  longitude: 19.255,
+  radius: 500,
+  airport: 'B',
+  checkInPermission: 'CHECK_IN_PENDING',
+}
+
+const TEST_CHECKIN_DENIED: CheckinInfo = {
+  logicalId: 'bp-airport-denied',
+  name: 'Budapest Airport Denied',
+  latitude: 47.439,
+  longitude: 19.25,
+  radius: 500,
+  airport: 'BUD',
+  checkInPermission: 'CHECK_IN_NOT_ALLOWED',
+}
 
 function App() {
   const [logs, setLogs] = useState<LogItem[]>([])
-  const [permissionStatus, setPermissionStatus] = useState<PermissionStatusMap | null>(null)
-  const testGeofence = useMemo(() => buildSingleTestGeofence(), [])
+  const [statusSnapshot, setStatusSnapshot] = useState<GeofenceStatus>('NONE')
+  const [debugSnapshot, setDebugSnapshot] = useState<string>('N/A')
 
   const appendLog = (level: LogLevel, message: string) => {
-    const line = `[geofence-test][${level}] ${message}`
+    const line = `[geofence-service-test][${level}] ${message}`
     if (level === 'error') {
       console.error(line)
     } else if (level === 'success') {
@@ -89,6 +115,15 @@ function App() {
     ])
   }
 
+  const geofenceService = (window.Geofence as GeofenceService | undefined) ?? null
+
+  const makeBridgeLogger = () => ({
+    debug: (...args: unknown[]) => appendLog('info', `[bridge debug] ${args.map(String).join(' ')}`),
+    info: (...args: unknown[]) => appendLog('info', `[bridge info] ${args.map(String).join(' ')}`),
+    warn: (...args: unknown[]) => appendLog('info', `[bridge warn] ${args.map(String).join(' ')}`),
+    error: (...args: unknown[]) => appendLog('error', `[bridge error] ${args.map(String).join(' ')}`),
+  })
+
   const runAction = async (title: string, action: () => Promise<unknown>) => {
     appendLog('info', `${title} -> started`)
     try {
@@ -104,33 +139,26 @@ function App() {
     }
   }
 
-  const checkPermissions = async () => {
-    await runAction('checkPermissionStatus', async () => {
-      const result = await Geofence.checkPermissionStatus()
-      setPermissionStatus(result)
-      return result
-    })
+  const ensureService = (): GeofenceService => {
+    if (!geofenceService) {
+      throw new Error('window.Geofence not available')
+    }
+    return geofenceService
   }
 
   useEffect(() => {
-    Geofence.onNotificationClicked = (notificationData: unknown) => {
-      appendLog('info', `callback:onNotificationClicked -> ${JSON.stringify(notificationData)}`)
+    if (!geofenceService) {
+      appendLog('error', 'window.Geofence instance is missing (bridge entry not loaded).')
+      return
     }
-
-    Geofence.onTransitionReceived = (geofences: AppGeofence[]) => {
-      appendLog('info', `callback:onTransitionReceived -> ${JSON.stringify(geofences)}`)
-    }
-
-    appendLog('info', 'Callbacks bound: onNotificationClicked, onTransitionReceived')
-    checkPermissions().catch((error) => {
-      appendLog('error', `initial checkPermissionStatus -> error: ${JSON.stringify(error)}`)
-    })
+    appendLog('info', 'window.Geofence instance detected.')
+    setStatusSnapshot(geofenceService.getStatus())
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   return (
     <main className="app">
-      <h1>Capacitor Geofence Plugin Test</h1>
+      <h1>window.Geofence Service Test</h1>
 
       <section className="panel">
         <h2>Environment</h2>
@@ -138,106 +166,140 @@ function App() {
           <strong>Platform:</strong> {Capacitor.getPlatform()} ({Capacitor.isNativePlatform() ? 'native' : 'web'})
         </p>
         <p>
-          <strong>Test geofence ID:</strong> {TEST_GEOFENCE_ID}
+          <strong>window.Geofence:</strong> {geofenceService ? 'available' : 'missing'}
         </p>
         <p>
-          <strong>Coordinates:</strong> lat {TEST_COORDINATES.latitude}, lng {TEST_COORDINATES.longitude}, radius{' '}
-          {TEST_COORDINATES.radius}m
+          <strong>Status snapshot:</strong> {statusSnapshot}
         </p>
       </section>
 
       <section className="panel">
-        <h2>Permission / lifecycle tests</h2>
+        <h2>Lifecycle + interface tests</h2>
         <div className="buttonGrid">
-          <button onClick={() => void checkPermissions()}>checkPermissions</button>
           <button
             onClick={() =>
-              runAction('initialize (permission flow)', async () => {
-                const ready = await Geofence.initialize((result) => {
-                  appendLog('info', `initialize callback -> requested: ${JSON.stringify(result.requested)}`)
-                  appendLog('info', `initialize callback -> granted: ${JSON.stringify(result.granted)}`)
-                  appendLog('info', `initialize callback -> missing: ${JSON.stringify(result.missing)}`)
-                  appendLog('info', `initialize callback -> ready: ${JSON.stringify(result.ready)}`)
+              runAction('initialize', async () => {
+                const service = ensureService()
+                await service.initialize({
+                  pathPrefix: '#/checkin/',
+                  logger: makeBridgeLogger(),
+                  onEnterCheckinZone: (checkin) => {
+                    appendLog('success', `onEnterCheckinZone -> ${JSON.stringify(checkin)}`)
+                  },
+                  onStatusChange: (next, prev, error) => {
+                    appendLog('info', `onStatusChange -> ${prev} => ${next} (${JSON.stringify(error)})`)
+                    setStatusSnapshot(next)
+                  },
                 })
-                const status = await Geofence.checkPermissionStatus()
-                setPermissionStatus(status)
-                return { ready, status }
+                const status = service.getStatus()
+                setStatusSnapshot(status)
+                return { status }
               })
             }
           >
             initialize
           </button>
-          <button onClick={() => runAction('deviceReady', () => Geofence.deviceReady())}>deviceReady</button>
-          <button onClick={() => runAction('ping', () => Geofence.ping())}>ping</button>
-        </div>
-        <div className="permissionStatus">
-          <strong>Permission status:</strong>{' '}
-          {permissionStatus ? JSON.stringify(permissionStatus) : 'N/A'}
-        </div>
-      </section>
-
-      <section className="panel">
-        <h2>Geofence method tests</h2>
-        <div className="buttonGrid">
-          <button onClick={() => runAction('addOrUpdate (single)', () => Geofence.addOrUpdate(testGeofence))}>
-            addOrUpdate single
-          </button>
           <button
             onClick={() =>
-              runAction('addOrUpdate (array)', () =>
-                Geofence.addOrUpdate([
-                  testGeofence,
-                  {
-                    ...testGeofence,
-                    id: `${TEST_GEOFENCE_ID}-2`,
-                    latitude: testGeofence.latitude + 0.0007,
-                    notification: {
-                      ...testGeofence.notification,
-                      id: TEST_NOTIFICATION_ID + 1,
-                    },
+              runAction('reconfigure', async () => {
+                const service = ensureService()
+                service.reconfigure({
+                  notificationConfig: {
+                    title: 'Check-in zone reached for {airport}',
+                    text: 'Enter transition received for {logicalId}',
+                    vibration: [0, 120, 60, 120],
                   },
-                ]),
-              )
-            }
-          >
-            addOrUpdate array
-          </button>
-          <button onClick={() => runAction('getWatched', () => Geofence.getWatched())}>getWatched</button>
-          <button onClick={() => runAction('remove', () => Geofence.remove([TEST_GEOFENCE_ID]))}>remove by ID</button>
-          <button onClick={() => runAction('removeAll', () => Geofence.removeAll())}>removeAll</button>
-          <button
-            onClick={() =>
-              runAction('dismissNotifications', () => Geofence.dismissNotifications([TEST_NOTIFICATION_ID]))
-            }
-          >
-            dismissNotifications
-          </button>
-          <button onClick={() => runAction('snooze', () => Geofence.snooze(TEST_GEOFENCE_ID, 120))}>snooze 120s</button>
-        </div>
-      </section>
-
-      <section className="panel">
-        <h2>Callback simulation buttons</h2>
-        <div className="buttonGrid">
-          <button
-            onClick={() =>
-              runAction('simulate onTransitionReceived', async () => {
-                Geofence.onTransitionReceived([testGeofence])
+                })
+                return { ok: true }
               })
             }
           >
-            simulate transition callback
+            reconfigure
           </button>
           <button
             onClick={() =>
-              runAction('simulate onNotificationClicked', async () => {
-                Geofence.onNotificationClicked({ id: TEST_NOTIFICATION_ID, source: 'manual-simulate' })
+              runAction('getStatus', async () => {
+                const service = ensureService()
+                const status = service.getStatus()
+                setStatusSnapshot(status)
+                return { status }
               })
             }
           >
-            simulate notification callback
+            getStatus
+          </button>
+          <button
+            onClick={() =>
+              runAction('hasGeofencedCheckin', async () => {
+                const service = ensureService()
+                return { hasGeofencedCheckin: service.hasGeofencedCheckin() }
+              })
+            }
+          >
+            hasGeofencedCheckin
+          </button>
+          <button
+            onClick={() =>
+              runAction('getDebugInfos', async () => {
+                const service = ensureService()
+                const debugInfo = await service.getDebugInfos()
+                setDebugSnapshot(JSON.stringify(debugInfo))
+                return debugInfo
+              })
+            }
+          >
+            debugInfo
+          </button>
+          <button
+            onClick={() =>
+              runAction('geofenceArrivedToApp (test)', async () => {
+                const service = ensureService()
+                service.geofenceArrivedToApp(TEST_CHECKIN_A.logicalId)
+              })
+            }
+          >
+            geofenceArrivedToApp
           </button>
           <button onClick={() => setLogs([])}>clear logs</button>
+        </div>
+        <div className="permissionStatus">
+          <strong>Debug snapshot:</strong> {debugSnapshot}
+        </div>
+      </section>
+
+      <section className="panel">
+        <h2>checkLocation tests (enter transition only)</h2>
+        <div className="buttonGrid">
+          <button
+            onClick={() =>
+              runAction('checkLocation A (allowed)', async () => {
+                const service = ensureService()
+                return service.checkLocation(TEST_CHECKIN_A)
+              })
+            }
+          >
+            checkLocation A
+          </button>
+          <button
+            onClick={() =>
+              runAction('checkLocation B (pending)', async () => {
+                const service = ensureService()
+                return service.checkLocation(TEST_CHECKIN_B)
+              })
+            }
+          >
+            checkLocation B
+          </button>
+          <button
+            onClick={() =>
+              runAction('checkLocation denied', async () => {
+                const service = ensureService()
+                return service.checkLocation(TEST_CHECKIN_DENIED)
+              })
+            }
+          >
+            checkLocation denied
+          </button>
         </div>
       </section>
 
